@@ -1,0 +1,21 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.5.31'
+}
+
+group 'org.example'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+dependencies {
+    // define a BOM and its version
+    implementation(platform("com.squareup.okhttp3:okhttp-bom:4.9.0"))
+    // define any required OkHttp artifacts without version
+    implementation('com.squareup.okhttp3:okhttp:4.9.2')
+    implementation('com.squareup.okhttp3:logging-interceptor:4.9.2')
+
+    implementation('org.jsoup:jsoup:1.14.3')
+
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.5.31'
+}
