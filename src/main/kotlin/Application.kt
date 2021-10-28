@@ -4,6 +4,9 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 import java.io.File
 import java.io.IOException
+import java.lang.Integer.min
+import java.time.Instant
+import java.util.Date
 
 typealias Cookie = String
 
@@ -20,20 +23,93 @@ fun main() {
             writeBidItemsConfiguration(auctionItems)
         }
         "START" -> {
+            val client = OkHttpClient()
             // load configuration (zero max bid means im skipping this item)
             val items = loadCurrentConfiguration()
             items.printAuctionItems()
-            //    val cookie = loginToAuction(client)
-            // loop
-            // get waiting time
-            // console write current bids (), wait half of remaining time
-            // end loop
-            //if time is right -> place current bid + 1
-            // loop
-            // check -> if i am not winner, bid +1
-            // if i am winner, do nothing
-            // check every 1/4 second until finish
+            val cookie = loginToAuction(client)
+            waitForBiddingTime(items, client, SECONDS_TO_END_FOR_BIDDING)
+
+            spinThatWheeeeeeel(items, client, cookie, HW_AUCTION_LOGIN)
         }
+    }
+}
+
+private fun spinThatWheeeeeeel(
+    items: List<AuctionItem>,
+    client: OkHttpClient,
+    cookie: Cookie,
+    userName: String
+) {
+    while (true) {
+        println("Run bidding loop")
+        items.forEach { auctionItem ->
+            bidItemAuctionRound(auctionItem, client, cookie, userName)
+        }
+        Thread.sleep(250)
+    }
+}
+
+fun bidItemAuctionRound(
+    auctionItem: AuctionItem,
+    client: OkHttpClient,
+    cookie: String,
+    userName: String
+) {
+    val request = Request.Builder().url(auctionItem.link)
+        .addHeader("Cookie", cookie)
+        .get()
+        .build()
+
+    val document = client.newCall(request).execute().use { response ->
+        if (!response.isSuccessful) throw IOException("Unexpected code $response")
+        return@use Jsoup.parse(response.body!!.string())
+    }
+
+    val element = document.getElementsByClass("auction-history-table")[0]
+    val lastBidRow = element.child(1).child(0)
+    val bidder = lastBidRow.getElementsByClass("bid_username")[0].text()
+    if (bidder == userName) {
+        println("My bid is winning for: ${auctionItem.title}")
+        return
+    }
+    val currentBid = lastBidRow.getElementsByTag("bdi")[0].text().split(",")[0].toInt()
+    println("Current price is $currentBid and limit is ${auctionItem.bidLimit} for: ${auctionItem.title}")
+    if (currentBid >= auctionItem.bidLimit) return
+    val productForm = document.getElementsByClass("uwa_auction_form cart")[0]
+    val productId = productForm.attr("data-product_id")
+    val userId = productForm.children().last()!!.attr("value")
+    placeBid(client, cookie, auctionItem, currentBid + 1, productId, userId)
+}
+
+private fun waitForBiddingTime(items: List<AuctionItem>, client: OkHttpClient, SECONDS_TO_END_FOR_BIDDING: Int) {
+    val deadlineInstant = getCurrentAuctionDeadline(items, client)
+    println("\nAuction is ending on: ")
+    println(Date.from(deadlineInstant))
+    while (true) {
+        val instantNow = Date().toInstant()
+        val remainingSeconds = deadlineInstant.epochSecond - instantNow.epochSecond
+        if (SECONDS_TO_END_FOR_BIDDING >= remainingSeconds) {
+            println("WAITING IS OVER, remaining seconds: $remainingSeconds")
+            return
+        }
+        println("${remainingSeconds / 3600}h:${(remainingSeconds % 3600) / 60}m:${remainingSeconds % 60}s remaining to end of auction")
+        val waitTimeSeconds = min((remainingSeconds - SECONDS_TO_END_FOR_BIDDING).toInt() / 2, 60)
+        println("Checking again in $waitTimeSeconds seconds")
+        println()
+        Thread.sleep(waitTimeSeconds * 1000L)
+    }
+
+}
+
+fun getCurrentAuctionDeadline(items: List<AuctionItem>, client: OkHttpClient): Instant {
+    val request = Request.Builder().url(items.firstOrNull()!!.link).get().build()
+
+    client.newCall(request).execute().use { response ->
+        if (!response.isSuccessful) throw IOException("Unexpected code $response")
+        val auctionEndTimestamp = Jsoup.parse(response.body!!.string())
+            .getElementsByClass("uwa_auction_product_countdown")[0].attr("data-time")
+        return Instant.ofEpochSecond(auctionEndTimestamp.toLong())
     }
 }
 
@@ -60,33 +136,46 @@ fun writeBidItemsConfiguration(auctionItems: List<AuctionItem>) {
     }
 }
 
-fun placeBid(client: OkHttpClient, cookie: Cookie, auctionItem: AuctionItem) {
+fun placeBid(client: OkHttpClient, cookie: Cookie, auctionItem: AuctionItem, bid: Int, productId: String, user_id: String) {
+    println("About to place bid $bid for ${auctionItem.title}")
     val request = Request.Builder().url(auctionItem.link)
         .addHeader("Cookie", cookie)
         .post(
             FormBody.Builder()
-                .add("bid", "1509")
-                .add("uwa_bid_value", "0")
-                .add("uwa-place-bid", "1509")
-                .add("product_id", "1509")
-                .add("user_id", "386")
+                .add("bid", productId)
+                .add("uwa_bid_value", bid.toString())
+                .add("uwa-place-bid", productId)
+                .add("product_id", productId)
+                .add("user_id", user_id)
                 .build()
         )
         .build()
 
     client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw IOException("Unexpected code $response")
-        println(Jsoup.parse(response.body!!.string()).getElementsByClass("woocommerce-error")[0])
+        if(Jsoup.parse(response.body!!.string()).getElementsByClass("woocommerce-error").isEmpty()){
+            println("Managed to bid $bid on ${auctionItem.title}")
+        }else{
+            println("BIDDING FAILED FOR ${auctionItem.title}")
+        }
     }
 }
 
 fun loginToAuction(client: OkHttpClient): Cookie {
+    val nonceRequest = Request.Builder().url("https://hwauction.ba.innovatrics.net/my-account/")
+        .get()
+        .build()
+    val nonce = client.newCall(nonceRequest).execute().use { response ->
+        if (!response.isSuccessful) throw IOException("Unexpected code $response")
+        return@use Jsoup.parse(response.body?.string()).getElementById("woocommerce-login-nonce")!!.attr("value")
+    }
+
     val request = Request.Builder().url("https://hwauction.ba.innovatrics.net/my-account/")
         .post(
             FormBody.Builder()
                 .add("username", HW_AUCTION_LOGIN)
                 .add("password", HW_AUCTION_PASSWORD)
-                .add("woocommerce-login-nonce", "88658bfba5")
+                .add("woocommerce-login-nonce", nonce)
                 .add("login", "Log+in")
                 .build()
         )
