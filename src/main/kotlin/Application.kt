@@ -198,11 +198,13 @@ private fun loadCurrentAuctionItems(client: OkHttpClient): List<AuctionItem> {
         .map {
             val titleElement = it.getElementsByClass("title")[0].child(0).child(0)
             val auctionTypeText = it.getElementsByClass("btn-wrap clr")[0].child(0).text()
-            AuctionItem(
+            val item = AuctionItem(
                 type = AuctionType.fromText(auctionTypeText),
                 title = titleElement.text(),
                 link = titleElement.attr("href")
             )
+            println("Loaded: $item")
+            item
         }
 
     return auctionEntries

@@ -1,10 +1,10 @@
 enum class AuctionType(val typeText: String) {
-    BID("Bid now"),
-    BUY("Add to cart");
+    OTHER("I Don't Care for This"),
+    BID("Bid now");
 
     companion object {
         fun fromText(text: String): AuctionType {
-            return values().first { it.typeText == text }
+            return if (BID.typeText == text) BID else OTHER
         }
     }
 }
