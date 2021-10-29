@@ -10,8 +10,9 @@ import java.util.Date
 
 typealias Cookie = String
 
-const val SECONDS_TO_END_FOR_BIDDING = 5
+const val SECONDS_TO_END_FOR_BIDDING = 30
 const val HW_AUCTION_LOGIN = ""
+val HW_AUCTION_TEAMMATES = arrayOf("","")
 const val HW_AUCTION_PASSWORD = ""
 
 fun main() {
@@ -42,8 +43,9 @@ private fun spinThatWheeeeeeel(
     userName: String
 ) {
     while (true) {
+        println("_".repeat(30))
         println("Run bidding loop")
-        items.forEach { auctionItem ->
+        items.parallelStream().forEach { auctionItem ->
             bidItemAuctionRound(auctionItem, client, cookie, userName)
         }
         Thread.sleep(250)
@@ -69,7 +71,7 @@ fun bidItemAuctionRound(
     val element = document.getElementsByClass("auction-history-table")[0]
     val lastBidRow = element.child(1).child(0)
     val bidder = lastBidRow.getElementsByClass("bid_username")[0].text()
-    if (bidder == userName) {
+    if (bidder == userName || HW_AUCTION_TEAMMATES.contains(bidder)) {
         println("My bid is winning for: ${auctionItem.title}")
         return
     }
